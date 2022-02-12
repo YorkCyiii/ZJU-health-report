@@ -10,7 +10,7 @@ import time
 import sys
 
 
-class DaKa(object):
+class ClockIn(object):
     """Hit card class
 
     Attributes:
@@ -19,6 +19,7 @@ class DaKa(object):
         login_url: (str) 登录url
         base_url: (str) 打卡首页url
         save_url: (str) 提交打卡url
+        self.headers: (dir) 请求头
         sess: (requests.Session) 统一的session
     """
 
@@ -28,15 +29,18 @@ class DaKa(object):
         self.login_url = "https://zjuam.zju.edu.cn/cas/login?service=https%3A%2F%2Fhealthreport.zju.edu.cn%2Fa_zju%2Fapi%2Fsso%2Findex%3Fredirect%3Dhttps%253A%252F%252Fhealthreport.zju.edu.cn%252Fncov%252Fwap%252Fdefault%252Findex"
         self.base_url = "https://healthreport.zju.edu.cn/ncov/wap/default/index"
         self.save_url = "https://healthreport.zju.edu.cn/ncov/wap/default/save"
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36"
+        }
         self.sess = requests.Session()
 
     def login(self):
         """Login to ZJU platform"""
-        res = self.sess.get(self.login_url)
+        res = self.sess.get(self.login_url, headers=self.headers)
         execution = re.search(
             'name="execution" value="(.*?)"', res.text).group(1)
         res = self.sess.get(
-            url='https://zjuam.zju.edu.cn/cas/v2/getPubKey').json()
+            url='https://zjuam.zju.edu.cn/cas/v2/getPubKey', headers=self.headers).json()
         n, e = res['modulus'], res['exponent']
         encrypt_password = self._rsa_encrypt(self.password, e, n)
 
@@ -46,7 +50,7 @@ class DaKa(object):
             'execution': execution,
             '_eventId': 'submit'
         }
-        res = self.sess.post(url=self.login_url, data=data)
+        res = self.sess.post(url=self.login_url, data=data, headers=self.headers)
 
         # check if login successfully
         if '统一身份认证' in res.content.decode():
@@ -55,7 +59,7 @@ class DaKa(object):
 
     def post(self):
         """Post the hitcard info"""
-        res = self.sess.post(self.save_url, data=self.info)
+        res = self.sess.post(self.save_url, data=self.info, headers=self.headers)
         return json.loads(res.text)
 
     def get_date(self):
@@ -66,7 +70,7 @@ class DaKa(object):
     def get_info(self, html=None):
         """Get hitcard info, which is the old info with updated new time."""
         if not html:
-            res = self.sess.get(self.base_url)
+            res = self.sess.get(self.base_url, headers=self.headers)
             html = res.content.decode()
 
         try:
@@ -91,8 +95,8 @@ class DaKa(object):
         new_info['number'] = number
         new_info["date"] = self.get_date()
         new_info["created"] = round(time.time())
-        new_info["address"] = "浙江省杭州市西湖区"
-        new_info["area"] = "浙江省 杭州市 西湖区"
+        new_info["address"] = "浙江省台州市温岭县"
+        new_info["area"] = "浙江省 台州市 温岭县"
         new_info["province"] = new_info["area"].split(' ')[0]
         new_info["city"] = new_info["area"].split(' ')[1]
         # form change
@@ -104,6 +108,12 @@ class DaKa(object):
         new_info['jcqzrq'] = ""
         new_info['gwszdd'] = ""
         new_info['szgjcs'] = ""
+        
+        # 2021.08.05 Fix 2
+        magics = re.findall(r'"([0-9a-f]{32})":\s*"([^\"]+)"', html)
+        for item in magics:
+            new_info[item[0]] = item[1]
+
         self.info = new_info
         return new_info
 
@@ -143,7 +153,7 @@ def main(username, password):
           datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print("🚌 打卡任务启动")
 
-    dk = DaKa(username, password)
+    dk = ClockIn(username, password)
 
     print("登录到浙大统一身份认证平台...")
     try:
@@ -156,12 +166,12 @@ def main(username, password):
     print('正在获取个人信息...')
     try:
         dk.get_info()
-        print('%s %s同学, 你好~' % (dk.info['number'], dk.info['name']))
+        print('已成功获取个人信息')
     except Exception as err:
         print('获取信息失败，请手动打卡，更多信息: ' + str(err))
         raise Exception
 
-    print('正在为您打卡打卡打卡')
+    print('正在为您打卡')
     try:
         res = dk.post()
         if str(res['e']) == '0':
